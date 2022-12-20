@@ -1,0 +1,43 @@
+image: maven:latest
+
+variables:
+  MAVEN_CLI_OPTS: "-s .m2/settings.xml --batch-mode"
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+cache:
+  paths:
+    - .m2/repository/
+    - target/
+
+stages:
+  - build
+  - test
+  - package
+  - push
+
+build:
+  stage: build
+  script:
+    - mvn $MAVEN_CLI_OPTS compile
+
+test:
+  stage: test
+  script:
+    - mvn $MAVEN_CLI_OPTS test
+
+package:
+  stage: package
+  script:
+    - mvn $MAVEN_CLI_OPTS package -Dmaven.test.skip=true
+  artifacts:
+    paths:
+      - target/*.war
+  only:
+    - master
+
+push:
+  stage: push
+  script:
+    - mvn $MAVEN_CLI_OPTS deploy -Dmaven.test.skip=true
+  only:
+    - master
+

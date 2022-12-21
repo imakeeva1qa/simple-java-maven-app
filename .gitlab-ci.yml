@@ -13,6 +13,7 @@ stages:
   - test
   - package
   - push
+  - deploy
 
 build:
   stage: build
@@ -27,7 +28,7 @@ test:
 package:
   stage: package
   script:
-    - mvn $MAVEN_CLI_OPTS package -Dmaven.test.skip=true
+    - mvn $MAVEN_CLI_OPTS clean package -Dmaven.test.skip=true
   artifacts:
     paths:
       - target/*.war
@@ -41,3 +42,7 @@ push:
   only:
     - master
 
+deploy:
+  stage: deploy
+  script:
+    - mvn $MAVEN_CLI_OPTS exec:java -Dexec.mainClass="com.mycompany.app.App"

@@ -1,6 +1,8 @@
 image: maven:latest
 
 variables:
+  VERSION: '1.$CI_PIPELINE_ID'
+  ENVIRONMENT: "prod"
   MAVEN_CLI_OPTS: "-s .m2/settings.xml --batch-mode"
   MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
 cache:
@@ -9,40 +11,88 @@ cache:
     - target/
 
 stages:
+  - sonarqube
   - build
   - test
   - package
   - push
   - deploy
 
+sonarqube-check:
+  stage: sonarqube
+  #image: maven:3.6.3-jdk-11
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - mvn verify sonar:sonar -Dsonar.projectKey=gitlab-instance-4069e2bf_java-app_AYVJS9X5gcfeqIKRdVZ7
+  allow_failure: true
+  rules:
+    - if: "$CI_COMMIT_BRANCH"
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+
+
 build:
   stage: build
   script:
     - mvn $MAVEN_CLI_OPTS compile
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
 
 test:
   stage: test
   script:
     - mvn $MAVEN_CLI_OPTS test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
 
 package:
   stage: package
   script:
     - mvn $MAVEN_CLI_OPTS clean package -Dmaven.test.skip=true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
   artifacts:
     paths:
-      - target/*.war
-  only:
-    - master
+      - target/*.jar
 
 push:
   stage: push
   script:
     - mvn $MAVEN_CLI_OPTS deploy -Dmaven.test.skip=true
-  only:
-    - master
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
 
-deploy:
+deploy_dev:
   stage: deploy
+  before_script:
+    - chmod 400 $SSH_KEY
+  environment:
+    name: dev
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == "develop"'
   script:
-    - mvn $MAVEN_CLI_OPTS exec:java -Dexec.mainClass="com.mycompany.app.App"
+    - ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@${APP_SERVER_URL} "
+      rm *.jar &&
+      wget "http://${MAIN_SERVER_URL}:8081/nexus/service/local/repositories/java-app-releases/content/com/mycompany/app/my-app/${VERSION}/my-app-${VERSION}.jar" &&
+      java -jar my-app-${VERSION}.jar "
+
+deploy_prod:
+  stage: deploy
+  before_script:
+    - chmod 400 $SSH_KEY
+  environment:
+    name: prod
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_NAME == "main"'
+      when: manual
+  script:
+    - ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@${APP_SERVER_URL} "
+      rm *.jar &&
+      wget "http://${MAIN_SERVER_URL}:8081/nexus/service/local/repositories/java-app-releases/content/com/mycompany/app/my-app/${VERSION}/my-app-${VERSION}.jar" &&
+      java -jar my-app-${VERSION}.jar "
